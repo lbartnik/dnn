@@ -123,19 +123,33 @@ if (FALSE) {
 
 
 grid <- function(X, Y, b, eta=0.01, epochs=250) {
-  W <- expand_grid(w1 = seq(-2, 2, 0.5), w2 = seq(-2, 2, 0.5))
+  run_no <- 0
+  enumerator <- function() {
+    run_no <<- run_no + 1
+    run_no
+  }
   
-  adply(W, 1, function(w) {
-    trace <- optimize(X, Y, as.numeric(w), b, eta, epochs)
-    bind_cols(
-      w %>% rename(s1 = w1, s2 = w2),
-      tail(trace, 1)
-    )
-  })
+  w <- seq(-4, 4, 0.1)
+  W <- expand_grid(w1 = w, w2 = w)
+  
+  W %>%
+    alply(1, function(w) {
+      trace <- optimize(X, Y, as.numeric(w), b, eta, epochs) %>%
+        mutate(stage = 'intermediate',
+               i = seq(2, length(stage)+1))
+      trace$stage[nrow(trace)] <- 'finish'
+      
+      bind_rows(
+        bind_cols(w, tibble(b1 = b[1], b2 = b[2], stage = 'start', i = 1)),
+        trace
+      ) %>%
+        mutate(no = enumerator())
+    }) %>%
+    bind_rows
 }
 
 if (FALSE) {
-  ANS <- grid(X, Y, c(-1, -1), epochs=100)
+  ANS <- grid(X, Y, c(-1, -1))
  
   hist(log(ANS$Loss))
   
@@ -158,7 +172,7 @@ if (FALSE) {
     ggplot() +
     geom_point(aes(x = b1, y = b2, color = ll))
 
-  classify <- function(w1, w2) {
+  classify100 <- function(w1, w2) {
     if (w1 > 3 && w2 < -3) return(1)
     if (w1 < -3 && w2 > 3) return(1)
     if (w1 < -3 && w2 < 1) return(2)
@@ -168,18 +182,43 @@ if (FALSE) {
     if (w1 > 2 && w2 > 2) return(4)
     return(5)
   }
+
+  classify250 <- function(w1, w2) {
+    if (w1 > 3 && w2 < -3) return(1)
+    if (w1 < -3 && w2 > 3) return(1)
+    if (w1 < -2 && w2 < -2) return(2)
+    if (w1 < -3 && w2 < 1) return(3)
+    if (w1 < 1 && w2 < -3) return(3)
+    if (w1 > 2 && w2 > 2) return(4)
+#    if (w1 > 3 && abs(w2) < .5) return(4)
+#    if (abs(w1) < .5 && w2 > 3) return(4)
+    return(6)
+  }
   
-  ANS %>%
-    mutate(group = Vectorize(classify)(w1, w2),
-           group = as.factor(group)) %>%
+    
+  ANS2 <- ANS %>%
+    ddply(.(no), function(run) {
+      run$group <- classify250(tail(run, 1)$w1, tail(run, 1)$w2)
+      run
+    }) %>%
+    mutate(group = as.factor(group))
+    
+  
+  ANS2 %>%
+    filter(stage == 'finish') %>%
     ggplot() +
     geom_point(aes(x = w1, y = w2, color = group))
-
-  ANS %>%
-    mutate(group = Vectorize(classify)(w1, w2),
-           group = as.factor(group)) %>%
+  
+  ANS2 %>%
+    as_tibble %>%
+    filter(i %% 10 == 0 | stage %in% c("finish", "start")) %>%
     ggplot() +
-    geom_point(aes(x = s1, y = s2, color = group))
+    geom_point(aes(x = w1, y = w2, color = group, size=stage), alpha = .1) +
+    scale_size_manual(values=c(1.3, .05, 1.3)) +
+    scale_shape_manual(values = c(21, 16, 2))
+
+  ggsave("trace_250_dense.pdf", width = 12, height = 10)
+  
   
 }
 
