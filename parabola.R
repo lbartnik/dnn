@@ -2,6 +2,7 @@ library(tibble)
 library(tidyr)
 library(ggplot2)
 library(gridExtra)
+library(plyr)
 library(dplyr)
 
 sigma <- function(x) 1/(1+exp(-x))
@@ -55,9 +56,11 @@ optimize <- function(X, Y, w, b, eta, epochs) {
     tr <- append(tr, et)
   }
   
-  lapply(tr, function(p) {
+  tr <- lapply(tr, function(p) {
     unlist(p[c("w", "b", "Loss")])
   })
+  
+  as_tibble(do.call(rbind, tr))
 }
 
 result <- function(X, Y, w, b) {
@@ -67,13 +70,16 @@ result <- function(X, Y, w, b) {
     ggplot(aes(x = x, y = value, color = name)) + geom_point()
 }
 
+result2 <- function(X, Y, ans) {
+  result(X, Y, extract(ans, "w"), extract(ans, "b"))
+}
+
 extract <- function(row, what) {
   as.numeric(select(row, starts_with(what)))
 }
 
 experiment <- function(X, Y, D = 2, w = rnorm(D), b = rnorm(D), eta = 0.002, epochs = 2000) {
   trace <- optimize(X, Y, w, b, eta, epochs)
-  trace <- as_tibble(do.call(rbind, trace))
   
   ans <- trace[1,]
   p1 <- result(X, Y, extract(ans, "w"), extract(ans, "b"))
@@ -108,8 +114,73 @@ f <- function(x) x^2
 X <- runif(100, -2, 2)
 Y <- f(X) + rnorm(length(X), sd=.1)
 
-experiment(X, Y, epochs = 500, w = c(-2, 2))
+if (FALSE) {
+  experiment(X, Y, epochs = 500, w = c(-2, 2))
 
-experiment(X, Y, epochs = 500, D = 10)
+  experiment(X, Y, epochs = 1000, D = 2, eta = 0.01)
+}
+
+
+
+grid <- function(X, Y, b, eta=0.01, epochs=250) {
+  W <- expand_grid(w1 = seq(-2, 2, 0.5), w2 = seq(-2, 2, 0.5))
+  
+  adply(W, 1, function(w) {
+    trace <- optimize(X, Y, as.numeric(w), b, eta, epochs)
+    bind_cols(
+      w %>% rename(s1 = w1, s2 = w2),
+      tail(trace, 1)
+    )
+  })
+}
+
+if (FALSE) {
+  ANS <- grid(X, Y, c(-1, -1), epochs=100)
+ 
+  hist(log(ANS$Loss))
+  
+  pdf("by_Loss.pdf")
+  ANS %>%
+    mutate(ll = log(Loss)) %>%
+    arrange(ll) %>%
+    a_ply(1, function(ans) {
+      print(result2(X, Y, ans) + ggtitle(ans$ll))
+    })
+  dev.off()
+  
+  ANS %>%
+    mutate(ll = log(Loss)) %>%
+    ggplot() +
+    geom_point(aes(x = w1, y = w2, color = ll))
+
+  ANS %>%
+    mutate(ll = log(Loss)) %>%
+    ggplot() +
+    geom_point(aes(x = b1, y = b2, color = ll))
+
+  classify <- function(w1, w2) {
+    if (w1 > 3 && w2 < -3) return(1)
+    if (w1 < -3 && w2 > 3) return(1)
+    if (w1 < -3 && w2 < 1) return(2)
+    if (w1 < 1 && w2 < -2) return(2)
+    if (w1 > 2 && abs(w2) < .5) return(3)
+    if (abs(w1) < .5 && w2 > 2) return(3)
+    if (w1 > 2 && w2 > 2) return(4)
+    return(5)
+  }
+  
+  ANS %>%
+    mutate(group = Vectorize(classify)(w1, w2),
+           group = as.factor(group)) %>%
+    ggplot() +
+    geom_point(aes(x = w1, y = w2, color = group))
+
+  ANS %>%
+    mutate(group = Vectorize(classify)(w1, w2),
+           group = as.factor(group)) %>%
+    ggplot() +
+    geom_point(aes(x = s1, y = s2, color = group))
+  
+}
 
 
